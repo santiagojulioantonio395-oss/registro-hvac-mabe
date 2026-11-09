@@ -206,7 +206,7 @@ $("hasta").value=fechaLocal();
 async function login(){
   aviso("loginMsg","Validando acceso...");
   try {
-    if(!db) throw new Error("No se pudo cargar Supabase. Revisa tu conexión.");
+    if(!db) throw new Error("Supabase detectado como: "+typeof window.supabase);
 
     const correo=$("email").value.trim();
     const password=$("password").value;
