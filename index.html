@@ -203,20 +203,37 @@ $("desde").value=fechaLocal();
 $("hasta").value=fechaLocal();
 
 async function login(){
-aviso("loginMsg","Validando acceso...");
-const {data,error}=await db.auth.signInWithPassword({
-email:$("email").value.trim(),
-password:$("password").value
-});
-if(error){
-aviso("loginMsg",error.message,"error");
-return;
-}
-$("login").classList.add("hidden");
-$("app").classList.remove("hidden");
-$("userEmail").textContent=data.user.email;
-try{await iniciarCatalogos();}
-catch(e){aviso("tempMsg",e.message,"error");}
+  aviso("loginMsg","Validando acceso...");
+  try {
+    if(!db) throw new Error("No se pudo cargar Supabase. Revisa tu conexión.");
+
+    const correo=$("email").value.trim();
+    const password=$("password").value;
+
+    if(!correo || !password){
+      throw new Error("Escribe tu correo y contraseña.");
+    }
+
+    const {data,error}=await db.auth.signInWithPassword({
+      email:correo,
+      password:password
+    });
+
+    if(error) throw error;
+
+    $("login").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    $("userEmail").textContent=data.user.email;
+
+    try {
+      await iniciarCatalogos();
+    } catch(e) {
+      aviso("tempMsg",e.message,"error");
+    }
+
+  } catch(e) {
+    aviso("loginMsg",e.message || "Error al iniciar sesión.","error");
+  }
 }
 
 async function logout(){
