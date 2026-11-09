@@ -1,1 +1,465 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#12304a">
+<title>REGISTRO HVAC MABE</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f2f5f7;color:#203342;font-family:Arial,sans-serif}
+header{background:#12304a;color:white;padding:20px}
+header h2{margin:0}
+main{max-width:1100px;margin:18px auto;padding:0 12px}
+.panel{background:white;padding:16px;border-radius:12px;margin-bottom:15px;border:1px solid #dce3e8}
+h3{color:#176b9b}
+label{display:block;font-size:13px;font-weight:bold;margin:8px 0 5px}
+input,select{width:100%;padding:11px;border:1px solid #bbc9d2;border-radius:7px;font-size:15px}
+button{background:#176b9b;color:white;border:0;padding:12px 16px;border-radius:8px;font-size:14px;font-weight:bold;margin:5px 3px;cursor:pointer}
+.secondary{background:#e5edf2;color:#12304a}
+.tabs{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.hidden{display:none!important}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:10px 0;border-bottom:1px solid #e2e8ed}
+.equipment{font-weight:bold;align-self:center}
+.msg{padding:10px;background:#edf3f7;border-radius:7px;margin:10px 0;font-size:13px}
+.error{background:#ffeded;color:#a32121}
+.ok{background:#e8f6ed;color:#176b43}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px}
+td,th{padding:9px;border-bottom:1px solid #ddd;text-align:left;white-space:nowrap}
+th{background:#edf2f5}
+.chart{height:280px;position:relative}
+@media(max-width:550px){.row{grid-template-columns:1fr 1fr}.equipment{grid-column:1/-1}.chart{height:240px}}
+</style>
+</head>
+<body>
 
+<header>
+<h2>REGISTRO HVAC MABE</h2>
+<p>Control de temperaturas, humedad y mantenimiento</p>
+</header>
+
+<main>
+
+<section id="login" class="panel">
+<h3>Acceso de mantenimiento</h3>
+<label>Correo</label>
+<input id="email" type="email" placeholder="Correo registrado">
+<label>Contraseña</label>
+<input id="password" type="password" placeholder="Contraseña">
+<button onclick="login()">Iniciar sesión</button>
+<div id="loginMsg" class="msg">Ingresa con tu cuenta autorizada.</div>
+</section>
+
+<section id="app" class="hidden">
+
+<div class="panel grid">
+<div>
+<strong>Usuario:</strong>
+<div id="userEmail"></div>
+</div>
+<div>
+<label>Fecha de registro</label>
+<input type="date" id="fecha">
+</div>
+<div>
+<button class="secondary" onclick="logout()">Cerrar sesión</button>
+</div>
+</div>
+
+<div class="tabs">
+<button onclick="tab('captura')">Captura</button>
+<button onclick="tab('historial')">Historial y gráficas</button>
+</div>
+
+<section id="captura">
+
+<div class="panel">
+<h3>Temperaturas por área y equipo</h3>
+<p>Horarios: 06:30, 12:30 y 15:30.</p>
+<p>Si el equipo está apagado o fuera de servicio, deja vacía la temperatura.</p>
+<div id="temperaturas"></div>
+<button onclick="guardarTemperaturas()">Guardar temperaturas</button>
+<div id="tempMsg" class="msg"></div>
+</div>
+
+<div class="panel">
+<h3>Humedad de Color</h3>
+<p>Estándar: 38–45 % RH.</p>
+<div id="humedad" class="grid"></div>
+<button onclick="guardarHumedad()">Guardar humedad</button>
+<div id="humMsg" class="msg"></div>
+</div>
+
+</section>
+
+<section id="historial" class="hidden">
+
+<div class="panel">
+<h3>Historial de registros</h3>
+<div class="grid">
+<div>
+<label>Desde</label>
+<input type="date" id="desde">
+</div>
+<div>
+<label>Hasta</label>
+<input type="date" id="hasta">
+</div>
+<div>
+<label>Área</label>
+<select id="filtroArea">
+<option value="">Todas las áreas</option>
+</select>
+</div>
+</div>
+<button onclick="consultar()">Consultar</button>
+<button class="secondary" onclick="exportar()">Exportar CSV</button>
+<div id="histMsg" class="msg"></div>
+<div class="tablewrap">
+<table>
+<thead>
+<tr>
+<th>Fecha</th><th>Hora</th><th>Área</th>
+<th>Equipo</th><th>Temperatura</th><th>Estado</th>
+</tr>
+</thead>
+<tbody id="tabla"></tbody>
+</table>
+</div>
+</div>
+
+<div class="panel">
+<h3>Temperatura de Color</h3>
+<p>Estándar: 20–24 °C.</p>
+<div class="chart"><canvas id="grafTemp"></canvas></div>
+</div>
+
+<div class="panel">
+<h3>Humedad de Color</h3>
+<p>Estándar: 38–45 % RH.</p>
+<div class="chart"><canvas id="grafHum"></canvas></div>
+</div>
+
+</section>
+</section>
+</main>
+
+<script>
+const URL="https://lobaqopntvlpndfqvefx.supabase.co";
+const KEY="sb_publishable_f63z9wD5mipHEibwzaf64A_GUkmhTcq";
+const db=supabase.createClient(URL,KEY);
+
+const AREAS={
+"Color":["Equipo 1","Equipo 2"],
+"Piro 4":["Único"],
+"Piro 5":["Único"],
+"Piro 6":["Único"],
+"Piro Gas":["Equipo 1","Equipo 2"],
+"Negro":["Único"],
+"Pintura 1":["Equipo 1","Equipo 2"],
+"Pintura 2":["Equipo 1","Equipo 2"],
+"Pintura 3":["Equipo 1","Equipo 2"],
+"Piro Termo":["Equipo 1","Equipo 2"]
+};
+
+const HORAS=["06:30","12:30","15:30"];
+const HORAS_HUM=[
+"06:30","07:30","08:30","09:30","10:30",
+"11:30","12:30","13:30","14:30","15:30"
+];
+
+let areasDB=[];
+let equiposDB=[];
+let datosCSV=[];
+let chartTemp=null;
+let chartHum=null;
+
+const $=id=>document.getElementById(id);
+
+function aviso(id,texto,tipo=""){
+$(id).textContent=texto;
+$(id).className="msg "+tipo;
+}
+
+function fechaLocal(){
+const d=new Date();
+d.setMinutes(d.getMinutes()-d.getTimezoneOffset());
+return d.toISOString().slice(0,10);
+}
+
+$("fecha").value=fechaLocal();
+$("desde").value=fechaLocal();
+$("hasta").value=fechaLocal();
+
+async function login(){
+aviso("loginMsg","Validando acceso...");
+const {data,error}=await db.auth.signInWithPassword({
+email:$("email").value.trim(),
+password:$("password").value
+});
+if(error){
+aviso("loginMsg",error.message,"error");
+return;
+}
+$("login").classList.add("hidden");
+$("app").classList.remove("hidden");
+$("userEmail").textContent=data.user.email;
+try{await iniciarCatalogos();}
+catch(e){aviso("tempMsg",e.message,"error");}
+}
+
+async function logout(){
+await db.auth.signOut();
+$("app").classList.add("hidden");
+$("login").classList.remove("hidden");
+}
+
+function tab(nombre){
+$("captura").classList.toggle("hidden",nombre!=="captura");
+$("historial").classList.toggle("hidden",nombre!=="historial");
+}
+
+async function iniciarCatalogos(){
+const a=await db.from("areas").select("*").order("id");
+if(a.error)throw Error(a.error.message);
+areasDB=a.data||[];
+
+const e=await db.from("equipos").select("*,areas(nombre)").order("id");
+if(e.error)throw Error(e.error.message);
+equiposDB=e.data||[];
+
+const faltantes=Object.keys(AREAS).filter(n=>!areasDB.some(a=>a.nombre===n));
+if(faltantes.length)throw Error("Faltan áreas: "+faltantes.join(", "));
+
+const total=Object.values(AREAS).reduce((n,x)=>n+x.length,0);
+if(equiposDB.length<total)throw Error("Faltan equipos en el catálogo de Supabase.");
+
+$("filtroArea").innerHTML='<option value="">Todas las áreas</option>'+
+areasDB.map(a=>`<option value="${a.id}">${a.nombre}</option>`).join("");
+
+crearCaptura();
+crearHumedad();
+}
+
+function nombreArea(eq){
+return eq.areas?.nombre||
+areasDB.find(a=>String(a.id)===String(eq.area_id))?.nombre||"";
+}
+
+function crearCaptura(){
+let html="";
+for(const [area,nombres] of Object.entries(AREAS)){
+html+=`<h3>${area}</h3>`;
+const equipos=equiposDB.filter(e=>nombreArea(e)===area);
+for(const eq of equipos){
+for(const hora of HORAS){
+const k=eq.id+"_"+hora.replace(":","");
+html+=`
+<div class="row" data-eq="${eq.id}" data-hora="${hora}">
+<div class="equipment">${eq.nombre||eq.equipo}<br><small>${hora}</small></div>
+<div>
+<label>Temperatura °C</label>
+<input type="number" step="0.1" data-temp="${k}" placeholder="°C">
+</div>
+<div>
+<label>Estado</label>
+<select data-estado="${k}">
+<option value="operando">Operando</option>
+<option value="apagado">Apagado</option>
+<option value="fuera_servicio">Fuera de servicio</option>
+</select>
+</div>
+</div>`;
+}
+}
+}
+$("temperaturas").innerHTML=html;
+}
+
+function crearHumedad(){
+$("humedad").innerHTML=HORAS_HUM.map(h=>`
+<div>
+<label>${h} – % RH</label>
+<input type="number" step="0.1" min="0" max="100"
+data-hum="${h}" placeholder="%">
+</div>`).join("");
+}
+
+async function guardarTemperaturas(){
+const f=$("fecha").value;
+if(!f){aviso("tempMsg","Selecciona una fecha.","error");return;}
+const registros=[];
+for(const r of document.querySelectorAll("[data-eq]")){
+const id=r.dataset.eq;
+const hora=r.dataset.hora;
+const k=id+"_"+hora.replace(":","");
+const v=$(`[data-temp="${k}"]`).value.trim();
+const estado=$(`[data-estado="${k}"]`).value;
+
+if(estado==="operando"&&v==="")continue;
+if(estado!=="operando"&&v!==""){
+aviso("tempMsg","Deja vacía la temperatura si el equipo no está operando.","error");
+return;
+}
+if(v!==""&&(!Number.isFinite(Number(v))||Number(v)<-10||Number(v)>80)){
+aviso("tempMsg","Revisa una temperatura fuera de rango.","error");
+return;
+}
+registros.push({
+fecha:f,hora,equipo_id:Number(id),
+temperatura:v===""?null:Number(v),estado
+});
+}
+if(!registros.length){
+aviso("tempMsg","No hay lecturas para guardar.","error");
+return;
+}
+const {error}=await db.from("temperaturas")
+.upsert(registros,{onConflict:"fecha,hora,equipo_id"});
+if(error){aviso("tempMsg",error.message,"error");return;}
+aviso("tempMsg","Registros guardados correctamente.","ok");
+}
+
+async function guardarHumedad(){
+const f=$("fecha").value;
+const registros=[];
+for(const i of document.querySelectorAll("[data-hum]")){
+const v=i.value.trim();
+if(v==="")continue;
+const n=Number(v);
+if(!Number.isFinite(n)||n<0||n>100){
+aviso("humMsg","La humedad debe estar entre 0 y 100 %.","error");
+return;
+}
+registros.push({fecha:f,hora:i.dataset.hum,humedad:n});
+}
+if(!registros.length){
+aviso("humMsg","No hay lecturas para guardar.","error");
+return;
+}
+const {error}=await db.from("humedad")
+.upsert(registros,{onConflict:"fecha,hora"});
+if(error){aviso("humMsg",error.message,"error");return;}
+aviso("humMsg","Humedad guardada correctamente.","ok");
+}
+
+async function consultar(){
+const desde=$("desde").value;
+const hasta=$("hasta").value;
+if(!desde||!hasta||desde>hasta){
+aviso("histMsg","Revisa las fechas.","error");return;
+}
+const {data,error}=await db.from("temperaturas")
+.select("fecha,hora,equipo_id,temperatura,estado,equipos(nombre,area_id,areas(nombre))")
+.gte("fecha",desde).lte("fecha",hasta)
+.order("fecha").order("hora");
+
+if(error){aviso("histMsg",error.message,"error");return;}
+
+let rows=(data||[]).map(r=>({
+...r,
+area:r.equipos?.areas?.nombre||
+areasDB.find(a=>String(a.id)===String(r.equipos?.area_id))?.nombre||"",
+equipo:r.equipos?.nombre||""
+}));
+
+const filtro=$("filtroArea").value;
+if(filtro)rows=rows.filter(r=>
+String(areasDB.find(a=>a.nombre===r.area)?.id)===String(filtro));
+
+datosCSV=rows;
+$("tabla").innerHTML=rows.map(r=>`
+<tr>
+<td>${r.fecha}</td><td>${r.hora}</td><td>${r.area}</td>
+<td>${r.equipo}</td>
+<td>${r.temperatura==null?"—":r.temperatura}</td>
+<td>${r.estado||""}</td>
+</tr>`).join("");
+
+aviso("histMsg",rows.length+" registros encontrados.");
+await graficas(desde,hasta);
+}
+
+async function graficas(desde,hasta){
+const ids=equiposDB.filter(e=>nombreArea(e)==="Color").map(e=>e.id);
+const {data,error}=await db.from("temperaturas")
+.select("fecha,hora,equipo_id,temperatura,estado")
+.gte("fecha",desde).lte("fecha",hasta).in("equipo_id",ids)
+.order("fecha").order("hora");
+
+if(error){aviso("histMsg",error.message,"error");return;}
+
+const rows=(data||[]).filter(r=>
+r.temperatura!==null&&r.estado==="operando");
+const labels=[...new Set(rows.map(r=>r.fecha+" "+r.hora))].sort();
+
+const series=ids.map(id=>{
+const eq=equiposDB.find(e=>String(e.id)===String(id));
+return {
+label:eq.nombre||eq.equipo,
+data:labels.map(l=>{
+const [f,h]=l.split(" ");
+const r=rows.find(x=>String(x.equipo_id)===String(id)&&x.fecha===f&&x.hora===h);
+return r?Number(r.temperatura):null;
+}),
+spanGaps:false
+};
+});
+
+if(chartTemp)chartTemp.destroy();
+chartTemp=new Chart($("grafTemp"),{
+type:"line",
+data:{labels,datasets:series},
+options:{responsive:true,maintainAspectRatio:false,
+scales:{y:{min:15,max:35,title:{display:true,text:"°C"}}}}
+});
+
+const {data:hum,error:eh}=await db.from("humedad")
+.select("fecha,hora,humedad").gte("fecha",desde).lte("fecha",hasta)
+.order("fecha").order("hora");
+
+if(eh){aviso("histMsg",eh.message,"error");return;}
+if(chartHum)chartHum.destroy();
+chartHum=new Chart($("grafHum"),{
+type:"line",
+data:{
+labels:(hum||[]).map(r=>r.fecha+" "+r.hora),
+datasets:[{label:"Humedad % RH",data:(hum||[]).map(r=>Number(r.humedad))}]
+},
+options:{responsive:true,maintainAspectRatio:false,
+scales:{y:{min:30,max:55,title:{display:true,text:"% RH"}}}}
+});
+}
+
+function exportar(){
+if(!datosCSV.length){
+aviso("histMsg","Primero consulta el historial.","error");return;
+}
+const cols=["fecha","hora","area","equipo","temperatura","estado"];
+const csv=[cols.join(";"),...datosCSV.map(r=>
+cols.map(k=>'"'+String(r[k]??"").replace(/"/g,'""')+'"').join(";")
+)].join("\r\n");
+const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
+const url=URL.createObjectURL(blob);
+const a=document.createElement("a");
+a.href=url;a.download="Registro_HVAC_MABE.csv";a.click();
+URL.revokeObjectURL(url);
+}
+
+(async()=>{
+const {data}=await db.auth.getSession();
+if(data.session){
+$("login").classList.add("hidden");
+$("app").classList.remove("hidden");
+$("userEmail").textContent=data.session.user.email;
+try{await iniciarCatalogos();}
+catch(e){aviso("tempMsg",e.message,"error");}
+}
+})();
+</script>
+</body>
+  </html>
