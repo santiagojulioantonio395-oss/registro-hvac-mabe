@@ -48,7 +48,19 @@ th{background:#edf2f5}
 <label>Contraseña</label>
 <input id="password" type="password" placeholder="Contraseña" autocomplete="current-password">
 <button id="loginButton" onclick="login()">Iniciar sesión</button>
+<button class="secondary" onclick="solicitarRestablecimiento()">Olvidé mi contraseña</button>
 <div id="loginMsg" class="msg">Ingresa con tu cuenta autorizada.</div>
+</section>
+
+<section id="recovery" class="panel hidden">
+<h3>Crear contraseña nueva</h3>
+<p>Escribe y confirma tu nueva contraseña.</p>
+<label>Nueva contraseña</label>
+<input id="newPassword" type="password" autocomplete="new-password" placeholder="Nueva contraseña">
+<label>Confirmar contraseña</label>
+<input id="confirmPassword" type="password" autocomplete="new-password" placeholder="Repite la contraseña">
+<button onclick="guardarNuevaPassword()">Guardar contraseña</button>
+<div id="recoveryMsg" class="msg"></div>
 </section>
 
 <section id="app" class="hidden">
@@ -200,6 +212,41 @@ async function login() {
     aviso("loginMsg", e.message || "Error al iniciar sesión.", "error");
   } finally {
     boton.disabled = false;
+  }
+}
+
+async function solicitarRestablecimiento() {
+  try {
+    if (!db) throw new Error("No hay conexión con Supabase.");
+    const correo = $("email").value.trim();
+    if (!correo) throw new Error("Escribe primero tu correo registrado.");
+    aviso("loginMsg", "Enviando correo de recuperación...");
+    const { error } = await db.auth.resetPasswordForEmail(correo, {
+      redirectTo: window.location.origin + window.location.pathname
+    });
+    if (error) throw error;
+    aviso("loginMsg", "Solicitud enviada. Revisa tu correo y abre el enlace de recuperación.", "ok");
+  } catch (e) {
+    aviso("loginMsg", e.message || "No se pudo enviar el correo.", "error");
+  }
+}
+
+async function guardarNuevaPassword() {
+  try {
+    const nueva = $("newPassword").value;
+    const confirmar = $("confirmPassword").value;
+    if (!nueva || nueva.length < 8) {
+      throw new Error("La contraseña debe tener al menos 8 caracteres.");
+    }
+    if (nueva !== confirmar) throw new Error("Las contraseñas no coinciden.");
+    const { error } = await db.auth.updateUser({ password: nueva });
+    if (error) throw error;
+    $("recovery").classList.add("hidden");
+    $("login").classList.remove("hidden");
+    $("password").value = "";
+    aviso("loginMsg", "Contraseña actualizada. Ya puedes iniciar sesión.", "ok");
+  } catch (e) {
+    aviso("recoveryMsg", e.message || "No se pudo actualizar la contraseña.", "error");
   }
 }
 
@@ -425,6 +472,18 @@ function exportar() {
   a.download = "Registro_HVAC_MABE.csv";
   a.click();
   window.URL.revokeObjectURL(urlArchivo);
+}
+
+/* Detectar el enlace de recuperación abierto desde el correo. */
+if (db) {
+  db.auth.onAuthStateChange((event) => {
+    if (event === "PASSWORD_RECOVERY") {
+      $("login").classList.add("hidden");
+      $("app").classList.add("hidden");
+      $("recovery").classList.remove("hidden");
+      aviso("recoveryMsg", "Enlace válido. Ahora crea tu contraseña nueva.", "ok");
+    }
+  });
 }
 
 /* Recuperar sesión solo si db se creó correctamente. */
