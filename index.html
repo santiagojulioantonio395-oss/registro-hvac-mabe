@@ -151,7 +151,14 @@ th{background:#edf2f5}
 <script>
 const URL="https://lobaqopntvlpndfqvefx.supabase.co";
 const KEY="sb_publishable_f63z9wD5mipHEibwzaf64A_GUkmhTcq";
-const db=supabase.createClient(URL,KEY);
+let db=null;
+try {
+  if(window.supabase && window.supabase.createClient){
+    db=window.supabase.createClient(URL,KEY);
+  }
+} catch(e) {
+  console.error("Error Supabase:",e);
+}
 
 const AREAS={
 "Color":["Equipo 1","Equipo 2"],
