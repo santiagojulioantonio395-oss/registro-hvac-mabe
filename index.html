@@ -184,6 +184,38 @@ let chartHum = null;
 
 const $ = id => document.getElementById(id);
 
+// Dibuja los límites de especificación directamente sobre el área de cada gráfica.
+const lineasEstandarPlugin = {
+  id: "lineasEstandar",
+  afterDraw(chart, args, opciones) {
+    const area = chart.chartArea;
+    const escalaY = chart.scales && chart.scales.y;
+    if (!area || !escalaY || !opciones || !Array.isArray(opciones.lineas)) return;
+
+    const ctx = chart.ctx;
+    opciones.lineas.forEach(linea => {
+      const y = escalaY.getPixelForValue(linea.valor);
+      if (!Number.isFinite(y) || y < area.top || y > area.bottom) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([8, 6]);
+      ctx.strokeStyle = "#777777";
+      ctx.lineWidth = 2.5;
+      ctx.moveTo(area.left, y);
+      ctx.lineTo(area.right, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#666666";
+      ctx.font = "bold 11px Arial";
+      ctx.textAlign = "right";
+      ctx.fillText(linea.etiqueta, area.right - 5, y - 5);
+      ctx.restore();
+    });
+  }
+};
+
+if (window.Chart) Chart.register(lineasEstandarPlugin);
+
 function aviso(id, texto, tipo="") {
   const el = $(id);
   if (!el) return;
@@ -466,13 +498,15 @@ async function graficas(desde, hasta) {
     type:"line",
     data:{
       labels,
-      datasets:[
-        ...series,
-        {label:"Estándar mínimo 20 °C", data:labels.map(() => 20), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2},
-        {label:"Estándar máximo 24 °C", data:labels.map(() => 24), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2}
-      ]
+      datasets:series
     },
     options:{responsive:true, maintainAspectRatio:false,
+      plugins:{
+        lineasEstandar:{lineas:[
+          {valor:20, etiqueta:"Mínimo 20 °C"},
+          {valor:24, etiqueta:"Máximo 24 °C"}
+        ]}
+      },
       scales:{y:{min:15,max:35,title:{display:true,text:"°C"}}}}
   });
 
@@ -486,11 +520,15 @@ async function graficas(desde, hasta) {
     type:"line",
     data:{labels:(hum || []).map(r => r.fecha + " " + r.hora),
       datasets:[
-        {label:"Humedad % RH", data:(hum || []).map(r => Number(r.humedad)), borderWidth:2, tension:0.2},
-        {label:"Estándar mínimo 38 %", data:(hum || []).map(() => 38), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2},
-        {label:"Estándar máximo 45 %", data:(hum || []).map(() => 45), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2}
+        {label:"Humedad % RH", data:(hum || []).map(r => Number(r.humedad)), borderWidth:2, tension:0.2}
       ]},
     options:{responsive:true, maintainAspectRatio:false,
+      plugins:{
+        lineasEstandar:{lineas:[
+          {valor:38, etiqueta:"Mínimo 38 %"},
+          {valor:45, etiqueta:"Máximo 45 %"}
+        ]}
+      },
       scales:{y:{min:30,max:55,title:{display:true,text:"% RH"}}}}
   });
 }
