@@ -95,18 +95,14 @@ th{background:#edf2f5}
 </div>
 <div class="panel">
 <h3>Humedad de Color</h3>
-  <h3>Humedad de Color</h3>
 <p>Estándar: 38–45 % RH.</p>
-
 <div class="capture-filters">
   <div>
     <label for="humedadHora">Horario</label>
     <select id="humedadHora" onchange="crearHumedad()"></select>
   </div>
 </div>
-
 <div id="humedad"></div>
-
 <button onclick="guardarHumedad()">Guardar humedad de esta hora</button>
 <div id="humMsg" class="msg"></div>
 </div>
@@ -166,11 +162,11 @@ try {
 
 const AREAS = {
   "Color":["Equipo 1","Equipo 2"],
-  "Piro 4":[],
-  "Piro 5":[],
-  "Piro 6":[],
+  "Piro 4":["Único"],
+  "Piro 5":["Único"],
+  "Piro 6":["Único"],
   "Piro Gas":["Equipo 1","Equipo 2"],
-  "Negro":[],
+  "Negro":["Único"],
   "Pintura 1":["Equipo 1","Equipo 2"],
   "Pintura 2":["Equipo 1","Equipo 2"],
   "Pintura 3":["Equipo 1","Equipo 2"],
@@ -307,8 +303,8 @@ async function iniciarCatalogos() {
     areasDB.map(a => `<option value="${a.id}">${a.nombre}</option>`).join("");
 
   $("capturaArea").innerHTML = Object.keys(AREAS).map(a => `<option value="${a}">${a}</option>`).join("");
-  $("humedadHora").innerHTML = HORAS_HUM.map(h => `<option value="${h}">${h}</option>`).join("");
   $("capturaHora").innerHTML = HORAS.map(h => `<option value="${h}">${h}</option>`).join("");
+  $("humedadHora").innerHTML = HORAS_HUM.map(h => `<option value="${h}">${h}</option>`).join("");
   crearCaptura();
   crearHumedad();
 }
@@ -346,13 +342,9 @@ function crearCaptura() {
 
 function crearHumedad() {
   const hora = $("humedadHora").value || HORAS_HUM[0];
-
   $("humedad").innerHTML = `
-    <div>
-      <label>${hora} – % RH</label>
-      <input type="number" step="0.1" min="0" max="100"
-      data-hum="${hora}" placeholder="%">
-    </div>
+    <div><label>${hora} – % RH</label>
+    <input type="number" step="0.1" min="0" max="100" data-hum="${hora}" placeholder="%"></div>
   `;
 }
 
@@ -471,7 +463,15 @@ async function graficas(desde, hasta) {
 
   if (chartTemp) chartTemp.destroy();
   chartTemp = new Chart($("grafTemp"), {
-    type:"line", data:{labels, datasets:series},
+    type:"line",
+    data:{
+      labels,
+      datasets:[
+        ...series,
+        {label:"Estándar mínimo 20 °C", data:labels.map(() => 20), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2},
+        {label:"Estándar máximo 24 °C", data:labels.map(() => 24), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2}
+      ]
+    },
     options:{responsive:true, maintainAspectRatio:false,
       scales:{y:{min:15,max:35,title:{display:true,text:"°C"}}}}
   });
@@ -485,7 +485,11 @@ async function graficas(desde, hasta) {
   chartHum = new Chart($("grafHum"), {
     type:"line",
     data:{labels:(hum || []).map(r => r.fecha + " " + r.hora),
-      datasets:[{label:"Humedad % RH", data:(hum || []).map(r => Number(r.humedad))}]},
+      datasets:[
+        {label:"Humedad % RH", data:(hum || []).map(r => Number(r.humedad)), borderWidth:2, tension:0.2},
+        {label:"Estándar mínimo 38 %", data:(hum || []).map(() => 38), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2},
+        {label:"Estándar máximo 45 %", data:(hum || []).map(() => 45), borderColor:"#888888", backgroundColor:"#888888", borderDash:[6,5], pointRadius:0, borderWidth:2}
+      ]},
     options:{responsive:true, maintainAspectRatio:false,
       scales:{y:{min:30,max:55,title:{display:true,text:"% RH"}}}}
   });
