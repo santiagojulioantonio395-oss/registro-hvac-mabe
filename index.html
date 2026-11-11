@@ -71,7 +71,6 @@ th{background:#edf2f5}
 
 <section id="app" class="hidden">
 <div class="panel grid">
-<div><strong>Usuario:</strong><div id="userEmail"></div></div>
 <div><label>Fecha de registro</label><input type="date" id="fecha"></div>
 <div><button class="secondary" onclick="logout()">Cerrar sesión</button></div>
 </div>
@@ -249,7 +248,6 @@ async function login() {
 
     $("login").classList.add("hidden");
     $("app").classList.remove("hidden");
-    $("userEmail").textContent = data.user.email || correo;
 
     try {
       await iniciarCatalogos();
@@ -346,6 +344,13 @@ function nombreArea(eq) {
     areasDB.find(a => String(a.id) === String(eq.area_id))?.nombre || "";
 }
 
+// Nombre limpio para mostrar: elimina "Único" sin modificar el catálogo de Supabase.
+function nombreEquipoVisible(eq) {
+  const original = String(eq.nombre || eq.equipo || "Equipo").trim();
+  const limpio = original.replace(/\búnico\b/gi, "").replace(/[\s-]+/g, " ").trim();
+  return limpio || nombreArea(eq) || "Equipo";
+}
+
 function crearCaptura() {
   const area = $("capturaArea").value || Object.keys(AREAS)[0];
   const hora = $("capturaHora").value || HORAS[0];
@@ -358,7 +363,7 @@ function crearCaptura() {
     const k = eq.id + "_" + hora.replace(":", "");
     return `
       <div class="capture-equipment" data-eq="${eq.id}" data-hora="${hora}">
-        <h4>${eq.nombre || eq.equipo || "Equipo"}</h4>
+        <h4>${nombreEquipoVisible(eq)}</h4>
         <div class="grid">
           <div><label>Temperatura °C</label><input type="number" step="0.1" data-temp="${k}" placeholder="°C"></div>
           <div><label>Estado</label><select data-estado="${k}">
@@ -451,7 +456,7 @@ async function consultar() {
       ...r,
       area: r.equipos?.areas?.nombre ||
         areasDB.find(a => String(a.id) === String(r.equipos?.area_id))?.nombre || "",
-      equipo: r.equipos?.nombre || ""
+      equipo: r.equipos ? nombreEquipoVisible({ ...r.equipos, area_id: r.equipos.area_id, areas: r.equipos.areas }) : ""
     }));
 
     const filtro = $("filtroArea").value;
@@ -483,7 +488,7 @@ async function graficas(desde, hasta) {
   const series = ids.map(id => {
     const eq = equiposDB.find(e => String(e.id) === String(id));
     return {
-      label: eq.nombre || eq.equipo,
+      label: nombreEquipoVisible(eq),
       data: labels.map(l => {
         const [f,h] = l.split(" ");
         const r = rows.find(x => String(x.equipo_id) === String(id) && x.fecha === f && x.hora === h);
@@ -572,7 +577,6 @@ if (db) {
     if (data.session) {
       $("login").classList.add("hidden");
       $("app").classList.remove("hidden");
-      $("userEmail").textContent = data.session.user.email || "";
       try {
         await iniciarCatalogos();
       } catch (e) {
