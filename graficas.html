@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#12304a">
+<title>Gráficas ambientales | MABE</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f2f5f7;color:#203342;font-family:Arial,sans-serif}header{background:#12304a;color:#fff;padding:20px 16px}header h1{font-size:21px;margin:0}header p{margin:7px 0 0;color:#d9e6ee;font-size:14px}main{max-width:1050px;margin:18px auto;padding:0 12px}.panel{background:#fff;border:1px solid #dce3e8;border-radius:12px;padding:16px;margin-bottom:15px}h2{font-size:18px;color:#176b9b;margin:0 0 12px}.filters{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}label{display:block;font-size:13px;font-weight:bold;margin:0 0 5px}input,button{width:100%;padding:11px;border:1px solid #bbc9d2;border-radius:7px;font-size:15px}button{background:#176b9b;color:white;border:0;font-weight:bold;cursor:pointer}.chart{height:320px;position:relative}.note{font-size:12px;color:#647785;margin-top:9px}.status{padding:10px;border-radius:7px;background:#edf3f7;font-size:13px;overflow-wrap:anywhere}.error{background:#ffeded;color:#a32121}@media(max-width:560px){.filters{grid-template-columns:1fr 1fr}.filters button{grid-column:1/-1}.chart{height:270px}}
+</style>
+</head>
+<body>
+<header><h1>REGISTRO HVAC MABE</h1><p>Monitor ambiental · Área Color</p></header>
+<main>
+<section class="panel">
+<h2>Periodo de consulta</h2>
+<div class="filters">
+ <div><label for="desde">Desde</label><input id="desde" type="date"></div>
+ <div><label for="hasta">Hasta</label><input id="hasta" type="date"></div>
+ <button id="actualizar">Actualizar gráficas</button>
+</div>
+<p class="note">Vista de consulta. Esta página no permite capturar, modificar ni eliminar registros.</p>
+</section>
+<section class="panel"><h2>Temperatura · Color</h2><div class="chart"><canvas id="grafTemp"></canvas></div><p class="note">Estándar: 20–24 °C. Las líneas grises discontinuas indican los límites.</p></section>
+<section class="panel"><h2>Humedad relativa · Color</h2><div class="chart"><canvas id="grafHum"></canvas></div><p class="note">Estándar: 38–45 % RH. Las líneas grises discontinuas indican los límites.</p></section>
+<div id="estado" class="status">Cargando gráficas…</div>
+</main>
+<script>
+"use strict";
+const SUPABASE_URL="https://lobaqopntvlpndfqvefx.supabase.co";
+const SUPABASE_KEY="sb_publishable_f63z9wD5mipHEibwzaf64A_GUkmhTcq";
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let chartTemp=null,chartHum=null;
+const $=id=>document.getElementById(id);
+const hoyLocal=()=>{const d=new Date();d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+const fechaHace=(dias)=>{const d=new Date();d.setDate(d.getDate()-dias);d.setMinutes(d.getMinutes()-d.getTimezoneOffset());return d.toISOString().slice(0,10)};
+function estado(msg,error=false){$('estado').textContent=msg;$('estado').className=error?'status error':'status'}
+const lineaEstandar={id:'lineasEstandar',afterDraw(chart){const cfg=chart.options.plugins.lineasEstandar;if(!cfg)return;const y=chart.scales.y,area=chart.chartArea;if(!y||!area)return;const ctx=chart.ctx;ctx.save();ctx.strokeStyle='#888888';ctx.fillStyle='#666666';ctx.lineWidth=1.5;ctx.setLineDash([6,5]);ctx.font='12px Arial';cfg.lineas.forEach(l=>{const py=y.getPixelForValue(l.valor);ctx.beginPath();ctx.moveTo(area.left,py);ctx.lineTo(area.right,py);ctx.stroke();ctx.setLineDash([]);ctx.textAlign='right';ctx.fillText(l.etiqueta,area.right-5,py-5);ctx.setLineDash([6,5]);});ctx.restore();}};
+Chart.register(lineaEstandar);
+async function cargar(){
+ const desde=$('desde').value,hasta=$('hasta').value;
+ if(!desde||!hasta||desde>hasta){estado('Selecciona un periodo válido.',true);return;}
+ $('actualizar').disabled=true;estado('Consultando registros…');
+ try{
+  const {data:area,error:ea}=await db.from('areas').select('id,nombre').eq('nombre','Color').maybeSingle();
+  if(ea)throw ea;if(!area)throw new Error('No se encontró el área Color.');
+  const {data:equipos,error:ee}=await db.from('equipos').select('*,areas(nombre)').eq('area_id',area.id).order('id');
+  if(ee)throw ee;if(!equipos||!equipos.length)throw new Error('No hay equipos del área Color disponibles.');
+  const ids=equipos.map(e=>e.id);
+  const {data:temps,error:et}=await db.from('temperaturas').select('fecha,hora,equipo_id,temperatura,estado').gte('fecha',desde).lte('fecha',hasta).in('equipo_id',ids).order('fecha').order('hora');
+  if(et)throw et;
+  const rows=(temps||[]).filter(r=>r.temperatura!==null&&r.estado==='operando');
+  const labels=[...new Set(rows.map(r=>r.fecha+' '+r.hora))].sort();
+  const series=equipos.map(eq=>({label:eq.nombre||eq.equipo||('Equipo '+eq.id),data:labels.map(l=>{const [f,h]=l.split(' ');const r=rows.find(x=>String(x.equipo_id)===String(eq.id)&&x.fecha===f&&x.hora===h);return r?Number(r.temperatura):null;}),borderWidth:2,tension:.2,spanGaps:false}));
+  if(chartTemp)chartTemp.destroy();
+  chartTemp=new Chart($('grafTemp'),{type:'line',data:{labels,datasets:series},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},lineasEstandar:{lineas:[{valor:20,etiqueta:'Mínimo 20 °C'},{valor:24,etiqueta:'Máximo 24 °C'}]}},scales:{y:{min:15,max:35,title:{display:true,text:'°C'}}}}});
+  const {data:hum,error:eh}=await db.from('humedad').select('fecha,hora,humedad').gte('fecha',desde).lte('fecha',hasta).order('fecha').order('hora');
+  if(eh)throw eh;
+  const hrows=hum||[],hlabels=hrows.map(r=>r.fecha+' '+r.hora);
+  if(chartHum)chartHum.destroy();
+  chartHum=new Chart($('grafHum'),{type:'line',data:{labels:hlabels,datasets:[{label:'Humedad % RH',data:hrows.map(r=>Number(r.humedad)),borderWidth:2,tension:.2}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'bottom'},lineasEstandar:{lineas:[{valor:38,etiqueta:'Mínimo 38 %'},{valor:45,etiqueta:'Máximo 45 %'}]}},scales:{y:{min:30,max:55,title:{display:true,text:'% RH'}}}}});
+  estado('Gráficas actualizadas. Temperaturas: '+rows.length+' lecturas · Humedad: '+hrows.length+' lecturas.');
+ }catch(e){console.error(e);estado('No se pudieron cargar las gráficas: '+(e.message||'Error de consulta')+'. Verifica los permisos de lectura pública de Supabase.',true);}
+ finally{$('actualizar').disabled=false;}
+}
+$('desde').value=fechaHace(30);$('hasta').value=hoyLocal();$('actualizar').addEventListener('click',cargar);cargar();
+</script>
+</body>
+</html>
