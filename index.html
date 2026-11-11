@@ -126,8 +126,8 @@ th{background:#edf2f5}
 </div>
 </div>
 <div class="panel">
-<h3>Temperatura de Color</h3>
-<p>Estándar: 20–24 °C.</p>
+<h3>Temperatura de todos los equipos</h3>
+<p>Estándar de referencia: 20–24 °C.</p>
 <div class="chart"><canvas id="grafTemp"></canvas></div>
 </div>
 <div class="panel">
@@ -161,11 +161,11 @@ try {
 
 const AREAS = {
   "Color":["Equipo 1","Equipo 2"],
-  "Piro 4":["Único"],
-  "Piro 5":["Único"],
-  "Piro 6":["Único"],
+  "Piro 4":["Equipo 1"],
+  "Piro 5":["Equipo 1"],
+  "Piro 6":["Equipo 1"],
   "Piro Gas":["Equipo 1","Equipo 2"],
-  "Negro":["Único"],
+  "Negro":["Equipo 1"],
   "Pintura 1":["Equipo 1","Equipo 2"],
   "Pintura 2":["Equipo 1","Equipo 2"],
   "Pintura 3":["Equipo 1","Equipo 2"],
@@ -344,17 +344,27 @@ function nombreArea(eq) {
     areasDB.find(a => String(a.id) === String(eq.area_id))?.nombre || "";
 }
 
-// Nombre limpio para mostrar: elimina "Único" sin modificar el catálogo de Supabase.
+// Nombres visibles: no cambia los nombres ni los IDs guardados en Supabase.
 function nombreEquipoVisible(eq) {
+  const area = nombreArea(eq);
+  if (["Piro 4", "Piro 5", "Piro 6", "Negro"].includes(area)) return "Equipo 1";
+  if (area === "Piro Termo") return "HMI – Equipo 1 y 2";
   const original = String(eq.nombre || eq.equipo || "Equipo").trim();
   const limpio = original.replace(/\búnico\b/gi, "").replace(/[\s-]+/g, " ").trim();
-  return limpio || nombreArea(eq) || "Equipo";
+  return limpio || "Equipo";
+}
+
+function equiposParaCaptura(area) {
+  const equipos = equiposDB.filter(e => nombreArea(e) === area);
+  // El HMI de Piro Termo entrega una sola lectura que representa ambos equipos.
+  if (area === "Piro Termo") return equipos.slice(0, 1);
+  return equipos;
 }
 
 function crearCaptura() {
   const area = $("capturaArea").value || Object.keys(AREAS)[0];
   const hora = $("capturaHora").value || HORAS[0];
-  const equipos = equiposDB.filter(e => nombreArea(e) === area);
+  const equipos = equiposParaCaptura(area);
   if (!equipos.length) {
     $("temperaturas").innerHTML = '<div class="msg error">No hay equipos registrados para esta área.</div>';
     return;
@@ -476,7 +486,9 @@ async function consultar() {
 }
 
 async function graficas(desde, hasta) {
-  const ids = equiposDB.filter(e => nombreArea(e) === "Color").map(e => e.id);
+  // Consultar todos los equipos. Piro Termo se presenta como una sola serie
+  // porque el HMI entrega una única lectura para Equipo 1 y Equipo 2.
+  const ids = equiposDB.map(e => e.id);
   const { data, error } = await db.from("temperaturas")
     .select("fecha,hora,equipo_id,temperatura,estado")
     .gte("fecha", desde).lte("fecha", hasta).in("equipo_id", ids)
@@ -485,18 +497,36 @@ async function graficas(desde, hasta) {
 
   const rows = (data || []).filter(r => r.temperatura !== null && r.estado === "operando");
   const labels = [...new Set(rows.map(r => r.fecha + " " + r.hora))].sort();
-  const series = ids.map(id => {
-    const eq = equiposDB.find(e => String(e.id) === String(id));
-    return {
-      label: nombreEquipoVisible(eq),
-      data: labels.map(l => {
-        const [f,h] = l.split(" ");
-        const r = rows.find(x => String(x.equipo_id) === String(id) && x.fecha === f && x.hora === h);
-        return r ? Number(r.temperatura) : null;
-      }),
-      spanGaps: false
-    };
-  });
+
+  const grupos = [];
+  const areas = [...new Set(equiposDB.map(e => nombreArea(e)))];
+  for (const area of areas) {
+    const equiposArea = equiposDB.filter(e => nombreArea(e) === area);
+    if (area === "Piro Termo") {
+      if (equiposArea.length) {
+        grupos.push({ area, nombre: "HMI – Equipo 1 y 2", ids: equiposArea.map(e => String(e.id)) });
+      }
+    } else {
+      for (const eq of equiposArea) {
+        grupos.push({ area, nombre: nombreEquipoVisible(eq), ids: [String(eq.id)] });
+      }
+    }
+  }
+
+  const series = grupos.map(grupo => ({
+    label: `${grupo.area} – ${grupo.nombre}`,
+    data: labels.map(l => {
+      const [f, h] = l.split(" ");
+      // En Piro Termo se usa la lectura del primer equipo; si no existe,
+      // se recupera la del segundo para conservar registros históricos.
+      const lectura = grupo.ids
+        .map(id => rows.find(r => String(r.equipo_id) === id && r.fecha === f && r.hora === h))
+        .find(Boolean);
+      return lectura ? Number(lectura.temperatura) : null;
+    }),
+    spanGaps: false,
+    tension: 0.2
+  }));
 
   if (chartTemp) chartTemp.destroy();
   chartTemp = new Chart($("grafTemp"), {
